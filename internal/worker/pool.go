@@ -39,7 +39,6 @@ func NewPool(cfg config.WorkerPoolConfig, processor task.Processor) *Pool {
 		config:    cfg,
 	}
 
-	
 	for i := 0; i < cfg.InitialWorkerCount; i++ {
 		pool.AddWorker()
 	}

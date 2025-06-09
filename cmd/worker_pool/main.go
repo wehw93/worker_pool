@@ -14,11 +14,11 @@ import (
 	"github.com/wehw93/worker_pool/pkg/logger"
 )
 
-type SimpleTaskProcessor struct {
+type Processor struct {
 	logger logger.Logger
 }
 
-func (p *SimpleTaskProcessor) Process(workerID int, t task.Task) {
+func (p *Processor) Process(workerID int, t task.Task) {
 	p.logger.Printf("Worker %d processing task: %s", workerID, t.Data)
 	time.Sleep(100 * time.Millisecond) 
 }
@@ -27,22 +27,19 @@ func main() {
 	
 	cfg := config.NewDefaultConfig()
 
-	
-	processor := &SimpleTaskProcessor{
+	processor := &Processor{
 		logger: cfg.Logger,
 	}
-
 	
 	pool := worker.NewPool(*cfg, processor)
 	defer pool.Shutdown()
 
-	
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	
 	go func() {
-		for i := 0; i < 20; i++ {
+		for i := 0; i < 30; i++ {
 			task := task.Task{
 				Data: fmt.Sprintf("Task %d", i+1),
 			}
@@ -58,7 +55,10 @@ func main() {
 	
 	go func() {
 		time.Sleep(500 * time.Millisecond)
-		cfg.Logger.Info("Adding 2 more workers...")
+		cfg.Logger.Info("Adding 5 more workers...")
+		pool.AddWorker()
+		pool.AddWorker()
+		pool.AddWorker()
 		pool.AddWorker()
 		pool.AddWorker()
 
