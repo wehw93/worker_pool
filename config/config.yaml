@@ -1,0 +1,8 @@
+worker_pool:
+  initial_worker_count: 3
+  buffer_size: 100
+  shutdown_timeout: 10s
+  
+logger:
+  level: "info"  # debug, info, error
+  prefix: "[WORKER-POOL] "

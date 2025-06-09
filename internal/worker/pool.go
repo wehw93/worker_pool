@@ -1,4 +1,4 @@
-// pool.go
+
 package worker
 
 import (
@@ -7,57 +7,70 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wehw93/worker_pool/internal/config"
 	"github.com/wehw93/worker_pool/internal/task"
 	"github.com/wehw93/worker_pool/pkg/logger"
 )
 
 type Pool struct {
-	workers      map[int]*Worker
-	taskChan     chan task.Task
-	workerID     int
-	mu           sync.RWMutex
-	ctx          context.Context
-	cancel       context.CancelFunc
-	wg           sync.WaitGroup
-	logger       logger.Logger
-	processor    task.Processor
-	config       config.WorkerPoolConfig
-	shutdownOnce sync.Once
+	workers         map[int]*Worker
+	taskChan        chan task.Task
+	workerID        int
+	mu              sync.RWMutex
+	ctx             context.Context
+	cancel          context.CancelFunc
+	wg              sync.WaitGroup
+	logger          logger.Logger
+	processor       task.Processor
+	shutdownTimeout time.Duration
+	shutdownOnce    sync.Once
 }
 
-func NewPool(cfg config.WorkerPoolConfig, processor task.Processor) *Pool {
+func NewPool(initialWorkerCount int, bufferSize int, shutdownTimeout time.Duration, logger logger.Logger, processor task.Processor) *Pool {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	pool := &Pool{
-		workers:   make(map[int]*Worker),
-		taskChan:  make(chan task.Task, cfg.BufferSize),
-		ctx:       ctx,
-		cancel:    cancel,
-		logger:    cfg.Logger,
-		processor: processor,
-		config:    cfg,
+		workers:         make(map[int]*Worker),
+		taskChan:        make(chan task.Task, bufferSize),
+		ctx:             ctx,
+		cancel:          cancel,
+		logger:          logger,
+		processor:       processor,
+		shutdownTimeout: shutdownTimeout,
 	}
 
-	for i := 0; i < cfg.InitialWorkerCount; i++ {
-		pool.AddWorker()
+	
+	for i := 0; i < initialWorkerCount; i++ {
+		pool.addWorker()
 	}
 
 	return pool
 }
 
+
+
+
 func (p *Pool) AddWorker() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	return p.addWorker()
+}
 
+
+func (p *Pool) addWorker() int {
 	p.workerID++
 	worker := NewWorker(p.workerID, p.taskChan, p.logger, p.processor)
 	p.workers[p.workerID] = worker
-	worker.Start(p.ctx)
+	
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		worker.Start(p.ctx)
+	}()
 
 	p.logger.Printf("Added worker %d", p.workerID)
 	return p.workerID
 }
+
 
 func (p *Pool) RemoveWorker(workerID int) error {
 	p.mu.Lock()
@@ -86,6 +99,14 @@ func (p *Pool) SubmitTask(t task.Task) error {
 	}
 }
 
+
+func (p *Pool) GetWorkerCount() int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return len(p.workers)
+}
+
+
 func (p *Pool) Shutdown() error {
 	var err error
 	p.shutdownOnce.Do(func() {
@@ -98,6 +119,13 @@ func (p *Pool) Shutdown() error {
 		close(p.taskChan)
 
 		
+		p.mu.Lock()
+		for _, worker := range p.workers {
+			worker.Stop()
+		}
+		p.mu.Unlock()
+
+		
 		done := make(chan struct{})
 		go func() {
 			p.wg.Wait()
@@ -106,9 +134,9 @@ func (p *Pool) Shutdown() error {
 
 		select {
 		case <-done:
-			p.logger.Info("All workers shut down")
-		case <-time.After(p.config.ShutdownTimeout):
-			err = fmt.Errorf("shutdown timeout")
+			p.logger.Info("All workers shut down gracefully")
+		case <-time.After(p.shutdownTimeout):
+			err = fmt.Errorf("shutdown timeout reached after %v", p.shutdownTimeout)
 			p.logger.Error("Shutdown timeout reached")
 		}
 	})

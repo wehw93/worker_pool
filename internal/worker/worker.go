@@ -1,4 +1,4 @@
-// worker.go
+
 package worker
 
 import (
@@ -66,7 +66,11 @@ func (w *Worker) run(ctx context.Context) {
                 w.logger.Printf("Worker %d: task channel closed", w.id)
                 return
             }
-            w.processor.Process(w.id, task)
+            if w.processor != nil {
+                w.processor.Process(w.id, task)
+            } else {
+                w.logger.Printf("Worker %d: processor is nil, skipping task: %s", w.id, task.Data)
+            }
             
         case <-w.quit:
             w.logger.Printf("Worker %d: received quit signal", w.id)
